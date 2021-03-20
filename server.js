@@ -8,6 +8,7 @@ var config = require("./config");
 var status = require("./status");
 var ep = require("./ep");
 var resources = require("./resources");
+var compression = require("./compression");
 
 const app = express();
 
@@ -63,7 +64,11 @@ app.get("/access", function(req, res) {
     resources.retrieveResource(req.query["url"]).then(function(returnedResource) {
         resource = returnedResource;
 
-        return ep.encryptUsingEpid(resource.buffer, req.query["epid"]).catch(function(error) {
+        return compression.compress(resource.buffer);
+    }).then(function(compressedByteArray) {
+        return Buffer.from(compressedByteArray);
+    }).then(function(compressedBuffer) {
+        return ep.encryptUsingEpid(compressedBuffer, req.query["epid"]).catch(function(error) {
             console.error(error);
 
             res.status(400).json({"error": "unsatisfiedRestriction"});
