@@ -1,9 +1,12 @@
+// Implementation follows spec: https://github.com/DeviceFuture/spec/blob/main/0001-0999/0002-thundernet-api.md
+
 const package = require("./package.json");
 const os = require("os");
 const express = require("express");
 
 var config = require("./config");
 var status = require("./status");
+var ep = require("./ep");
 
 const app = express();
 
@@ -21,7 +24,7 @@ function statusBlocked(res) {
 }
 
 app.get("/", function(req, res) {
-    res.redirect("https://devicefuture.org");
+    res.redirect(config.data.defaultRedirect || "https://devicefuture.org");
 });
 
 app.get("/about", function(req, res) {
@@ -30,6 +33,12 @@ app.get("/about", function(req, res) {
         "apiLevel": API_LEVEL,
         "status": status.status,
         "info": !!config.data.about ? String(config.data.about).substring(0, 256) : undefined // Info string is limited to 256 chars to ensure performance
+    });
+});
+
+app.get("/register", function(req, res) {
+    ep.createNew().then(function(epObject) {
+        res.json(epObject);
     });
 });
 

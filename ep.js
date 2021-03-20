@@ -1,0 +1,56 @@
+/*
+    This code is responsible for managing endpoint profiles
+
+    For more information, see: https://github.com/DeviceFuture/spec/blob/main/0001-0999/0002-thundernet-api.md
+*/
+
+var config = require("./config");
+var encryption = require("./encryption");
+var db = require("./db");
+
+exports.generateEpid = function(length = 16, digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") {
+    var id = "";
+
+    for (var i = 0; i < length; i++) {
+        id += digits.charAt(Math.floor(Math.random() * digits.length));
+    }
+
+    return id;
+};
+
+exports.createNew = function() {
+    return encryption.generateKey().then(function(jwk) {
+        var epObject = {
+            id: exports.generateEpid(),
+            jwk: jwk,
+            hosts: config.data.hosts || []
+        };
+
+        db.collections.endpointProfiles.insert({
+            _id: epObject.id,
+            jwk: epObject.jwk
+        });
+
+        return epObject;
+    });
+};
+
+exports.getJwkFromEpid = function(epid) {
+    return new Promise(function(resolve, reject) {
+        db.collections.endpointProfiles.findOne({_id: epid}, function(error, doc) {
+            if (error) {
+                reject(error);
+
+                return;
+            }
+
+            if (doc == null) {
+                reject(`Cannot get JWK from EPID ${epid}: EPID doesn't exist`);
+
+                return;
+            }
+
+            resolve(doc.jwk);
+        });
+    });
+};

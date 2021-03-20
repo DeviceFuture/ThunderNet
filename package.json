@@ -11,11 +11,14 @@
         "green"
     ],
     "author": "The DeviceFuture Authors",
+    "license": "MIT",
     "bin": {
         "thundernet": "main.js"
     },
     "dependencies": {
         "express": "^4.17.1",
-        "mkdirp": "^1.0.4"
+        "mkdirp": "^1.0.4",
+        "nedb": "^1.8.0",
+        "node-webcrypto-ossl": "^2.1.2"
     }
 }
