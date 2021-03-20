@@ -7,6 +7,7 @@ const express = require("express");
 var config = require("./config");
 var status = require("./status");
 var ep = require("./ep");
+var resources = require("./resources");
 
 const app = express();
 
@@ -22,6 +23,11 @@ function statusBlocked(res) {
 
     return false;
 }
+
+app.use(function(req, res, next) {
+    res.set("X-Powered-By", "ThunderNet");
+    next();
+});
 
 app.get("/", function(req, res) {
     res.redirect(config.data.defaultRedirect || "https://devicefuture.org");
@@ -39,6 +45,38 @@ app.get("/about", function(req, res) {
 app.get("/register", function(req, res) {
     ep.createNew().then(function(epObject) {
         res.json(epObject);
+    });
+});
+
+app.get("/access", function(req, res) {
+    if (
+        typeof(req.query["url"]) != "string" ||
+        typeof(req.query["epid"]) != "string"
+    ) {
+        res.status(400).json({"error": "unsatisfiedRestriction"});
+
+        return;
+    }
+
+    var resource;
+
+    resources.retrieveResource(req.query["url"]).then(function(returnedResource) {
+        resource = returnedResource;
+
+        return ep.encryptUsingEpid(resource.buffer, req.query["epid"]).catch(function(error) {
+            console.error(error);
+
+            res.status(400).json({"error": "unsatisfiedRestriction"});
+
+            return Promise.reject();
+        });
+    }).then(function(encryptionData) {
+        res
+            .status(resource.status == 200 ? 200 : 504)
+            .type(resource.mimetype)
+            .set("Tn-Encryption-Counter", Buffer.from(encryptionData.counter).toString("hex"))
+            .send(Buffer.from(encryptionData.buffer))
+        ;
     });
 });
 

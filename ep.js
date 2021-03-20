@@ -54,3 +54,9 @@ exports.getJwkFromEpid = function(epid) {
         });
     });
 };
+
+exports.encryptUsingEpid = function(data, epid) {
+    return exports.getJwkFromEpid(epid).then(function(jwk) {
+        return encryption.encrypt(data, jwk);
+    });
+};
