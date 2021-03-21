@@ -11,7 +11,7 @@ var encryption = require("./encryption");
 var db = require("./db");
 var tools = require("./tools");
 
-const MAX_DEFAULT_REQUEST_SIZE = 10 * 1024 * 1024; // 10 KiB
+const MAX_REQUEST_SIZE = config.data.maxRequestSize || 10 * 1024 * 1024; // 10 MiB
 const MAX_REDIRECTION_DEPTH = 5;
 const RESOURCE_CACHE_PATH = config.data.resourceCachePath || path.join(os.homedir(), ".config", "thundernet", "resourcecache");
 const CACHE_CLEAN_MAX_TIME = config.data.cacheCleanMaxTime || 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -26,6 +26,21 @@ exports.Resource = class {
         this.lastUpdated = lastUpdated;
 
         this.compressedBuffer = null;
+        this.tooLarge = false;
+    }
+
+    getSize() { // Calculates size of initial buffer request and compressed buffer
+        var size = 0;
+
+        if (this.buffer != null) {
+            size += Buffer.byteLength(this.buffer);
+        }
+
+        if (this.compressedBuffer != null) {
+            size += Buffer.byteLength(this.compressedBuffer);
+        }
+
+        return size;
     }
 };
 
@@ -50,10 +65,16 @@ exports.performResourceRequest = function(url, redirectionDepth = 0) {
             var data = [];
             var size = 0;
 
-            if (Number(response.headers["content-length"]) > (config.data.size || MAX_DEFAULT_REQUEST_SIZE)) {
+            console.log(Number(response.headers["content-length"]) > MAX_REQUEST_SIZE);
+
+            if (Number(response.headers["content-length"]) > MAX_REQUEST_SIZE) {
                 response.destroy();
 
-                reject("Resource has exceeded maximum request size");
+                var resource = new exports.Resource(Buffer.concat(data), response.statusCode, response.headers["content-type"], false);
+
+                resource.tooLarge = true;
+
+                resolve(resource);
             }
 
             response.on("data", function(chunk) {
@@ -61,10 +82,14 @@ exports.performResourceRequest = function(url, redirectionDepth = 0) {
 
                 size += Buffer.from(chunk).length;
 
-                if (size > (config.data.size || MAX_DEFAULT_REQUEST_SIZE)) {
+                if (size > MAX_REQUEST_SIZE) {
                     response.destroy();
 
-                    reject("Resource has exceeded maximum request size");
+                    var resource = new exports.Resource(Buffer.concat(data), response.statusCode, response.headers["content-type"], false);
+
+                    resource.tooLarge = true;
+
+                    resolve(resource);
                 }
             });
 
@@ -136,23 +161,39 @@ exports.findInCache = function(url) {
 
 exports.cleanCache = function() {
     return new Promise(function(resolve, reject) {
-        db.collections.resourceCache.remove({$or: [
+        var cleanFilter = {$or: [
             {
                 lastRetrieved: {$lt: new Date().getTime() - CACHE_CLEAN_MAX_TIME}
             },
             {
                 timesRetrieved: {$gt: CACHE_CLEAN_MAX_RETRIEVALS}
             }
-        ]}, {multi: true}, function(error, removed) {
+        ]};
+
+        db.collections.resourceCache.find(cleanFilter, function(error, docs) {
             if (error) {
-                console.warn("Couldn't clean cache:", error);
+                console.warn("Couldn't find cache removal candidates:", error);
             }
 
-            if (removed > 0) {
-                console.log(`Cache cleaned, ${removed} removed`);
+            for (var i = 0; i < docs.length; i++) {
+                try {
+                    fs.rmSync(path.join(RESOURCE_CACHE_PATH, docs[i].resourceId));
+                } catch (e) {
+                    console.warn("Couldn't remove cached resource:", e);
+                }
             }
 
-            resolve();
+            db.collections.resourceCache.remove(cleanFilter, {multi: true}, function(error, removed) {
+                if (error) {
+                    console.warn("Couldn't clean cache:", error);
+                }
+    
+                if (removed > 0) {
+                    console.log(`Cache cleaned, ${removed} removed`);
+                }
+    
+                resolve();
+            });
         });
     });
 };

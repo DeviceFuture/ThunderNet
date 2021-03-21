@@ -2,9 +2,10 @@
 
 var config = require("./config");
 var state = require("./state");
-var server = require("./server");
 
 config.init();
 state.init();
+
+var server = require("./server");
 
 server.start(config.data.port);

@@ -8,7 +8,7 @@ var config = require("./config");
 var status = require("./status");
 var ep = require("./ep");
 var resources = require("./resources");
-var compression = require("./compression");
+var rateLimiting = require("./ratelimiting");
 
 const app = express();
 
@@ -61,8 +61,28 @@ app.get("/access", function(req, res) {
 
     var resource;
 
-    resources.retrieveResource(req.query["url"], req.query["cache"] == "false").then(function(retrievedResource) {
+    rateLimiting.checkQuota(req.ip).catch(function(error) {
+        console.error(error);
+
+        res.status(429).json({"error": "quotaExceeded"});
+
+        return Promise.reject();
+    }).then(function() {
+        return resources.retrieveResource(req.query["url"], req.query["cache"] == "false");
+    }).catch(function(error) {
+        console.error(error);
+
+        res.status(504).json({"error": "communicationsFailure"});
+
+        return Promise.reject();
+    }).then(function(retrievedResource) {
         resource = retrievedResource;
+
+        if (resource.tooLarge) {
+            res.status(413).json({"error": "resourceTooLarge"});
+
+            return Promise.reject();
+        }
 
         return ep.encryptUsingEpid(resource.compressedBuffer, req.query["epid"]).catch(function(error) {
             console.error(error);
@@ -70,6 +90,10 @@ app.get("/access", function(req, res) {
             res.status(400).json({"error": "unsatisfiedRestriction"});
 
             return Promise.reject();
+        });
+    }).then(function(encryptionData) {
+        return rateLimiting.addToQuota(req.ip, resource.getSize()).then(function() {
+            return encryptionData;
         });
     }).then(function(encryptionData) {
         res
@@ -90,7 +114,19 @@ app.get("/version", function(req, res) {
         return;
     }
 
-    resources.retrieveResourceVersion(req.query["url"]).then(function(resourceVersion) {
+    rateLimiting.checkQuota(req.ip).catch(function(error) {
+        console.error(error);
+
+        res.status(429).json({"error": "quotaExceeded"});
+
+        return Promise.reject();
+    }).then(function() {
+        return resources.retrieveResourceVersion(req.query["url"]);
+    }).then(function(resourceVersion) {
+        return rateLimiting.addToQuota(req.ip, resourceVersion.resource.getSize()).then(function() {
+            return resourceVersion;
+        });
+    }).then(function(resourceVersion) {
         res.status(200).json({
             "hash": resourceVersion.hash,
             "lastUpdated": resourceVersion.resource.lastUpdated.getTime()

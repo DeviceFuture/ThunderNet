@@ -1,6 +1,10 @@
 {
     "port": 44444,
     "hosts": [],
+    "maxRequestSize": 10485760,
     "cacheCleanMaxTime": 604800000,
-    "cacheCleanMaxRetrievals": 1000
+    "cacheCleanMaxRetrievals": 1000,
+    "rateLimitQuotaInterval": 600000,
+    "rateLimitQuotaMaxData": 33554432,
+    "rateLimitWaitTime": 1200000
 }
