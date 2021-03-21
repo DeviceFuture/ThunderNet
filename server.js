@@ -134,6 +134,10 @@ app.get("/version", function(req, res) {
     });
 });
 
+app.get("/*", function(req, res) {
+    res.status(404).json({"error": "nonexistentRoute"});
+});
+
 exports.start = function(port = DEFAULT_PORT) {
     status.load();
 
