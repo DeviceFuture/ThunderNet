@@ -1,4 +1,6 @@
 {
     "port": 44444,
-    "hosts": []
+    "hosts": [],
+    "cacheCleanMaxTime": 604800000,
+    "cacheCleanMaxRetrievals": 1000
 }

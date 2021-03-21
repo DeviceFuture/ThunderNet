@@ -7,15 +7,10 @@
 var config = require("./config");
 var encryption = require("./encryption");
 var db = require("./db");
+var tools = require("./tools");
 
-exports.generateEpid = function(length = 16, digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") {
-    var id = "";
-
-    for (var i = 0; i < length; i++) {
-        id += digits.charAt(Math.floor(Math.random() * digits.length));
-    }
-
-    return id;
+exports.generateEpid = function() {
+    return tools.generateKey(16);
 };
 
 exports.createNew = function() {

@@ -1,18 +1,27 @@
 const http = require("http");
 const https = require("https");
+const os = require("os");
+const path = require("path");
+const fs = require("fs");
+const mkdirp = require("mkdirp");
 
 var config = require("./config.js");
 var compression = require("./compression");
-var ep = require("./ep");
+var db = require("./db");
+var tools = require("./tools");
 
 const MAX_DEFAULT_REQUEST_SIZE = 10 * 1024 * 1024; // 10 KiB
 const MAX_REDIRECTION_DEPTH = 5;
+const RESOURCE_CACHE_PATH = config.data.resourceCachePath || path.join(os.homedir(), ".config", "thundernet", "resourcecache");
+const CACHE_CLEAN_MAX_TIME = config.data.cacheCleanMaxTime || 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE_CLEAN_MAX_RETRIEVALS = config.data.cacheCleanMaxRetrievals || 1000; // 1,000 retrievals
 
 exports.Resource = class {
-    constructor(buffer, status, mimetype) {
+    constructor(buffer, status, mimetype, fromCache = false) {
         this.buffer = buffer;
         this.status = status;
         this.mimetype = mimetype;
+        this.fromCache = fromCache;
 
         this.compressedBuffer = null;
     }
@@ -71,16 +80,134 @@ exports.performResourceRequest = function(url, redirectionDepth = 0) {
     });
 };
 
-exports.retrieveResource = function(url) {
+exports.findInCache = function(url) {
+    return new Promise(function(resolve, reject) { // `resolve` called on cache hit with returned data, or `reject` called on cache miss
+        db.collections.resourceCache.findOne({url}, function(error, doc) {
+            if (error) {
+                reject(error);
+
+                return;
+            }
+
+            if (doc == null) {
+                reject("Cache miss");
+
+                return;
+            }
+
+            try {
+                var data = fs.readFileSync(path.join(RESOURCE_CACHE_PATH, doc.resourceId), {
+                    encoding: null
+                });
+
+                var resource = new exports.Resource(
+                    null,
+                    doc.status,
+                    doc.mimetype,
+                    true
+                );
+
+                resource.compressedBuffer = Buffer.from(data);
+
+                db.collections.resourceCache.update({url}, {
+                    $set: {lastRetrieved: new Date().getTime()},
+                    $inc: {timesRetrieved: 1}
+                }, {multi: true}, function() {
+                    resolve(resource);
+                });
+            } catch (e) {
+                reject(e);
+            }
+        });
+    });
+};
+
+exports.cleanCache = function() {
+    return new Promise(function(resolve, reject) {
+        db.collections.resourceCache.remove({$or: [
+            {
+                lastRetrieved: {$lt: new Date().getTime() - CACHE_CLEAN_MAX_TIME}
+            },
+            {
+                timesRetrieved: {$gt: CACHE_CLEAN_MAX_RETRIEVALS}
+            }
+        ]}, {multi: true}, function(error, removed) {
+            if (error) {
+                console.warn("Couldn't clean cache:", error);
+            }
+
+            if (removed > 0) {
+                console.log(`Cache cleaned, ${removed} removed`);
+            }
+
+            resolve();
+        });
+    });
+};
+
+exports.addToCache = function(resource, url) {
+    return new Promise(function(resolve, reject) {
+        try {
+            mkdirp.sync(RESOURCE_CACHE_PATH);
+        } catch (e) {
+            console.warn(`Cannot cache resource: path ${RESOURCE_CACHE_PATH} could not be created`);
+
+            return;
+        }
+
+        var resourceId = tools.generateKey();
+
+        try {
+            fs.writeFileSync(path.join(RESOURCE_CACHE_PATH, resourceId), resource.compressedBuffer);
+        } catch (e) {
+            console.warn(`Cannot cache resource: file ${path.join(RESOURCE_CACHE_PATH, resourceId)} could not be created`);
+
+            return;
+        }
+
+        db.collections.resourceCache.insert({
+            url,
+            resourceId,
+            status: resource.status,
+            mimetype: resource.mimetype,
+            lastRetrieved: new Date().getTime(),
+            timesRetrieved: 1
+        }, function(error) {
+            if (error) {
+                console.warn("Could not update cache index", error);
+            }
+
+            resolve();
+        });
+    });
+};
+
+exports.retrieveResource = function(url, forceCacheRefresh = false) {
     var resource;
 
-    return exports.performResourceRequest(url).then(function(returnedResource) {
-        resource = returnedResource;
+    return exports.cleanCache().then(function() {
+        return (
+            !forceCacheRefresh ?
+            exports.findInCache(url) :
+            Promise.reject()
+        ).catch(function() {
+            return exports.performResourceRequest(url).then(function(returnedResource) {
+                resource = returnedResource;
 
-        return compression.compress(resource.buffer);
-    }).then(function(compressedByteArray) {
-        resource.compressedBuffer = Buffer.from(compressedByteArray);
+                return compression.compress(resource.buffer);
+            }).then(function(compressedByteArray) {
+                resource.compressedBuffer = Buffer.from(compressedByteArray);
 
-        return resource;
+                return resource;
+            });
+        }).then(function(resource) {
+            if (!resource.fromCache) {
+                return exports.addToCache(resource, url).then(function() {
+                    return Promise.resolve(resource);
+                });
+            }
+
+            return Promise.resolve(resource);
+        });
     });
 };
