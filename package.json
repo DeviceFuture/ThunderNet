@@ -17,6 +17,7 @@
     },
     "dependencies": {
         "express": "^4.17.1",
+        "jsdom": "^16.5.1",
         "lzma": "^2.3.2",
         "mkdirp": "^1.0.4",
         "nedb": "^1.8.0",
