@@ -45,6 +45,10 @@ app.get("/about", function(req, res) {
 });
 
 app.get("/register", function(req, res) {
+    if (statusBlocked(res)) {
+        return;
+    }
+
     ep.createNew().then(function(epObject) {
         res.json(epObject);
     });
@@ -57,6 +61,10 @@ app.get("/access", function(req, res) {
     ) {
         res.status(400).json({"error": "unsatisfiedRestriction"});
 
+        return;
+    }
+
+    if (statusBlocked(res)) {
         return;
     }
 
@@ -112,6 +120,10 @@ app.get("/version", function(req, res) {
     ) {
         res.status(400).json({"error": "unsatisfiedRestriction"});
 
+        return;
+    }
+
+    if (statusBlocked(res)) {
         return;
     }
 
